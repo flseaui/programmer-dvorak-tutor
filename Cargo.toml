@@ -1,9 +1,18 @@
 [package]
 name = "programmer-dvorak-tutor"
 version = "0.1.0"
-authors = ["Clayton Meyer <sploing1@gmail.com>"]
+authors = ["Claire Meyer <signedrewind@gmail.com>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[lib]
+name = "programmer_dvorak_tutor"
+path = "src/lib.rs"
+
+[[bin]]
+name = "programmer_dvorak_tutor_cli"
+path = "src/bin/main.rs"
+
 [dependencies]
+clap = {version = "2.33.0", features = ["yaml"]}

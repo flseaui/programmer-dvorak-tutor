@@ -1,0 +1,11 @@
+name: Programmer Dvorak Tutor
+version: "0.1"
+author: Claire Meyer <signedrewind@gmail.com>
+about: Interactive CLI tool to learn Programmer Dvorak.
+args:
+  - lesson:
+      short: l
+      long: lesson
+      value_name: LESSON
+      help: loads a specific lesson
+      takes_value: true
