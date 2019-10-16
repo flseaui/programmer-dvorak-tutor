@@ -80,26 +80,33 @@ pub fn run_lesson(lesson: &Lesson, session: &Session) {
     for line in lesson.text.lines() {
         write!(
             stdout,
-            "{}\n\r{}",
+            "{}{}\n\r{}",
+            termion::cursor::Goto(1, if cursor_y == 1 { 1 } else { cursor_y + 1 }),
             line,
-            termion::cursor::Goto(cursor_x - 1, cursor_y + 1)
+            termion::cursor::Goto(1, if cursor_y == 1 { 2 } else { cursor_y + 2 })
         );
         stdout.flush().unwrap();
+        update_cursor_pos(&mut cursor_x, &mut cursor_y, stdout);
 
         let mut line_chars = line.chars();
-
+        let line_length = line_chars.clone().count() as u16;
         'character: loop {
             for c in stdin.keys() {
                 match c.unwrap() {
                     Key::Char(c) => {
-                        if c == '\n' {
-
-                        } else if c == line_chars.clone().nth(cursor_x as usize - 1).unwrap() {
-                            write!(stdout, "{}", c.to_string().on_bright_green());
-                            stdout.flush().unwrap();
-                        //break 'character;
+                        if cursor_x == line_length + 1 {
+                            if c == '\n' {
+                                break 'character;
+                            }
                         } else {
-                            write!(stdout, "{}", c.to_string().on_bright_red());
+                            if c == '\n' {
+                            } else if c == line_chars.clone().nth(cursor_x as usize - 1).unwrap() {
+                                write!(stdout, "{}", c.to_string().on_bright_green());
+                                stdout.flush().unwrap();
+                            //break 'character;
+                            } else {
+                                write!(stdout, "{}", c.to_string().on_bright_red());
+                            }
                         }
                     }
                     Key::Ctrl(c) => {
@@ -125,16 +132,6 @@ pub fn run_lesson(lesson: &Lesson, session: &Session) {
                 }
 
                 update_cursor_pos(&mut cursor_x, &mut cursor_y, stdout);
-                let (temp_cursor_x, temp_cursor_y) = stdout.cursor_pos().unwrap();
-                write!(
-                    stdout,
-                    "{}{}",
-                    termion::cursor::Goto(1, 4),
-                    cursor_x as usize
-                );
-                cursor_x = temp_cursor_x;
-                cursor_y = temp_cursor_y;
-                write!(stdout, "{}", termion::cursor::Goto(cursor_x, cursor_y));
                 stdout.flush().unwrap();
             }
         }
