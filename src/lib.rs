@@ -2,10 +2,12 @@
 extern crate clap;
 extern crate termion;
 
+use clap::ErrorKind;
 use colored::Colorize;
 use std::borrow::{Borrow, BorrowMut};
+use std::cell::Cell;
 use std::fs::read_to_string;
-use std::io::{stdin, stdout, Read, Stdin, Stdout, StdoutLock, Write};
+use std::io::{stdin, stdout, Error, Read, Stdin, Stdout, StdoutLock, Write};
 use std::ops::Deref;
 use std::str::Chars;
 use termion::cursor::DetectCursorPos;
@@ -27,11 +29,16 @@ impl Lesson {
 pub struct Session {
     stdout: RawTerminal<Stdout>,
     stdin: Stdin,
+    lesson: Cell<Option<Lesson>>,
 }
 
 impl Session {
     pub fn new(stdout: RawTerminal<Stdout>, stdin: Stdin) -> Session {
-        Session { stdout, stdin }
+        Session {
+            stdout,
+            stdin,
+            lesson: Cell::new(Some(Lesson::new(String::from("TEST")))),
+        }
     }
 }
 
@@ -39,16 +46,29 @@ pub fn create_app() {
     let yaml = load_yaml!("../cli.yml");
     let matches = clap::App::from(yaml).get_matches();
 
+    let session = start_session();
+
+    if matches.is_present("lesson") {
+        let lesson_str = matches.value_of("lesson").unwrap();
+        session.lesson.set(Some(load_lesson(lesson_str)));
+    }
+}
+
+fn start_session() -> &'static Session {
     let stdout = stdout().into_raw_mode().unwrap();
     let stdin = stdin();
 
     let session = Session::new(stdout, stdin);
 
-    if matches.is_present("lesson") {
-        let lesson_str = matches.value_of("lesson").unwrap();
-        let lesson = load_lesson(lesson_str);
+    &session;
 
-        run_lesson(&lesson, &session);
+    loop {
+        match &session.lesson.take() {
+            Some(lesson) => {
+                let again = run_lesson(&lesson, &session);
+            }
+            _ => {}
+        }
     }
 }
 
@@ -59,7 +79,7 @@ fn load_lesson(lesson: &str) -> Lesson {
     Lesson::new(lesson_string)
 }
 
-pub fn run_lesson(lesson: &Lesson, session: &Session) {
+pub fn run_lesson(lesson: &Lesson, session: &Session) -> bool {
     let stdin = &mut session.stdin.lock();
     let stdout = &mut session.stdout.lock();
     let (mut cursor_x, mut cursor_y) = stdout.cursor_pos().unwrap();
@@ -165,4 +185,21 @@ pub fn run_lesson(lesson: &Lesson, session: &Session) {
         termion::cursor::Goto(1, cursor_y + 1),
         title
     );
+
+    // true - yes, false - no
+    let answer: bool = match stdin.read_line() {
+        Ok(line) => match line {
+            None => true,
+            Some(answer) => {
+                if answer.eq_ignore_ascii_case("y") || answer.eq_ignore_ascii_case("yes") {
+                    true
+                } else {
+                    false
+                }
+            }
+        },
+        Err(_err) => false,
+    };
+
+    return answer;
 }
