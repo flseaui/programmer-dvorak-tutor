@@ -77,13 +77,34 @@ pub fn run_lesson(lesson: &Lesson, session: &Session) {
         termion::cursor::Goto(1, 1)
     );
     update_cursor_pos(&mut cursor_x, &mut cursor_y, stdout);
-    for line in lesson.text.lines() {
+
+    let top_offset = 1;
+    let first_line = top_offset + 1;
+
+    let mut lines = lesson.text.lines();
+    let title = lines.next().unwrap();
+    writeln!(stdout, "{}", title);
+    for line in lines {
         write!(
             stdout,
             "{}{}\n\r{}",
-            termion::cursor::Goto(1, if cursor_y == 1 { 1 } else { cursor_y + 1 }),
+            termion::cursor::Goto(
+                1,
+                if cursor_y == first_line {
+                    first_line
+                } else {
+                    cursor_y + 1
+                }
+            ),
             line,
-            termion::cursor::Goto(1, if cursor_y == 1 { 2 } else { cursor_y + 2 })
+            termion::cursor::Goto(
+                1,
+                if cursor_y == first_line {
+                    first_line + 1
+                } else {
+                    cursor_y + 2
+                }
+            )
         );
         stdout.flush().unwrap();
         update_cursor_pos(&mut cursor_x, &mut cursor_y, stdout);
@@ -136,4 +157,12 @@ pub fn run_lesson(lesson: &Lesson, session: &Session) {
             }
         }
     }
+
+    // Lesson finished
+    write!(
+        stdout,
+        "{}{} finished, next lesson? (y/n) ",
+        termion::cursor::Goto(1, cursor_y + 1),
+        title
+    );
 }
