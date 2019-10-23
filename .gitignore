@@ -105,3 +105,5 @@ fabric.properties
 .idea/**/markdown-navigator.xml
 .idea/**/markdown-navigator/
 
+#programmer-dvorak-turor files
+stats.json

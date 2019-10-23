@@ -1,37 +1,62 @@
+#![feature(const_fn)]
+
 #[macro_use]
 extern crate clap;
+
 extern crate termion;
+
+#[macro_use]
+extern crate lazy_static;
 
 use clap::ErrorKind;
 use colored::Colorize;
+use serde::{Deserialize, Serialize};
 use std::borrow::{Borrow, BorrowMut};
 use std::cell::{Cell, RefCell};
-use std::fs::read_to_string;
-use std::io::{stdin, stdout, Error, Read, Stdin, StdinLock, Stdout, StdoutLock, Write};
+use std::cmp::Ordering;
+use std::cmp::Ordering::{Equal, Greater, Less};
+use std::error::Error;
+use std::fs::{read_to_string, File};
+use std::io::{stdin, stdout, Read, Stdin, StdinLock, Stdout, StdoutLock, Write};
+use std::marker::Copy;
 use std::ops::Deref;
+use std::path::Path;
 use std::rc::Rc;
 use std::str::Chars;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Mutex;
 use std::sync::{mpsc, Arc};
-use std::thread;
 use std::thread::{JoinHandle, Thread};
+use std::{env, fs, thread};
 use termion::cursor::DetectCursorPos;
 use termion::event::Key;
 use termion::event::Key::Char;
 use termion::input::{Keys, TermRead};
 use termion::raw::{IntoRawMode, RawTerminal};
+use termion::terminal_size;
+use walkdir::{DirEntry, WalkDir};
 
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Lesson {
     text: String,
+    id: String,
 }
 
 unsafe impl Send for Lesson {}
 
 impl Lesson {
-    fn new(text: String) -> Lesson {
-        Lesson { text }
+    fn new(text: String, id: String) -> Lesson {
+        Lesson { text, id }
     }
+}
+
+#[derive(Serialize, Deserialize)]
+struct Stats {
+    last_lesson_id: String,
+}
+
+lazy_static! {
+    pub static ref LESSONS: Vec<Arc<Lesson>> = load_lessons();
 }
 
 pub fn create_app() {
@@ -42,21 +67,35 @@ pub fn create_app() {
 
     let handle = run(rx);
 
+    let loader = &LESSONS[0];
+
     if matches.is_present("lesson") {
         let lesson_str = matches.value_of("lesson").unwrap();
-        tx.send(load_lesson(lesson_str))
-            .expect("Lesson message sending failed!");
+        let lesson = LESSONS
+            .iter()
+            .find(|&l| l.id == lesson_str)
+            .unwrap()
+            .clone();
+        tx.send(lesson).expect("Lesson message sending failed!");
     }
 
+    if matches.is_present("continue") {
+        let stats = load_stats();
+
+        println!("Last Lesson ID: {}", stats.last_lesson_id);
+    }
+
+    get_next_lesson();
     handle.join();
 }
 
-fn run(rx: mpsc::Receiver<Lesson>) -> JoinHandle<()> {
+fn run(rx: mpsc::Receiver<Arc<Lesson>>) -> JoinHandle<()> {
     let lesson_runner = thread::spawn(move || loop {
         for lesson in &rx {
             let again = run_lesson(&lesson);
-            if again {
+            save_stats(lesson.deref().clone());
 
+            if again {
             } else {
                 //return;
             }
@@ -65,12 +104,115 @@ fn run(rx: mpsc::Receiver<Lesson>) -> JoinHandle<()> {
     lesson_runner
 }
 
+fn load_stats() -> Stats {
+    let stats_json = read_to_string("stats.json").unwrap();
+
+    let stats: Stats = serde_json::from_str(stats_json.as_str()).unwrap();
+
+    stats
+}
+
+fn save_stats(lesson: Lesson) {
+    let json = serde_json::to_string(&lesson).unwrap();
+
+    let path = Path::new("stats.json");
+    let display = path.display();
+
+    let mut file = match File::create(&path) {
+        Err(why) => panic!("couldn't create {}: {}", display, why),
+        Ok(file) => file,
+    };
+
+    match file.write_all(json.as_bytes()) {
+        Err(why) => panic!("couldn't write to {}: {}", display, why),
+        Ok(_) => println!("successfully wrote to {}", display),
+    }
+}
+
+fn load_lessons() -> Vec<Arc<Lesson>> {
+    fn is_lesson(entry: &DirEntry) -> bool {
+        entry
+            .file_name()
+            .to_str()
+            .map(|s| s.starts_with("lesson_"))
+            .unwrap_or(false)
+    }
+
+    let mut lessons = vec![];
+
+    let walker = WalkDir::new("lessons").contents_first(true).into_iter();
+    for entry in walker.filter_entry(|e| is_lesson(e) && e.file_type().is_file()) {
+        let entry = entry.unwrap();
+        let id = entry
+            .file_name()
+            .to_str()
+            .unwrap()
+            .trim_start_matches("lesson_")
+            .trim_end_matches(".txt");
+        let lesson_string = read_to_string(entry.path()).unwrap();
+        let lesson = Lesson::new(lesson_string, id.to_string());
+        lessons.push(Arc::new(lesson));
+    }
+    lessons
+}
+
+fn get_next_lesson() {
+    fn is_lesson(entry: &DirEntry) -> bool {
+        entry
+            .file_name()
+            .to_str()
+            .map(|s| s.starts_with("lesson_"))
+            .unwrap_or(false)
+    }
+
+    let walker = WalkDir::new("lessons").into_iter();
+    for entry in walker.filter_entry(|e| !is_lesson(e) && e.file_type().is_file()) {
+        let entry = entry.unwrap();
+        let id = entry
+            .file_name()
+            .to_str()
+            .unwrap()
+            .trim_start_matches("lesson_")
+            .trim_end_matches(".txt");
+
+        println!("next lesson: {}", entry.path().display());
+    }
+}
+
+/* 0 - less than
+ * 1 - greater than
+ * 2 - equal to
+ */
+fn compare_lesson_id(id_a: &str, id_b: &str) -> Ordering {
+    let letter_a = id_a.trim_matches(char::is_numeric);
+    let letter_b = id_a.trim_matches(char::is_numeric);
+
+    let number_a = id_a.parse::<u32>().unwrap();
+    let number_b = id_b.parse::<u32>().unwrap();
+
+    if number_a > number_b {
+        return Greater;
+    } else if number_a == number_b {
+        if letter_a.is_empty() || letter_b.is_empty() {
+            return Equal;
+        }
+        if letter_a > letter_b {
+            return Greater;
+        }
+        return Less;
+    } else {
+        return Less;
+    }
+}
+/*
+
 fn load_lesson(lesson: &str) -> Lesson {
-    let path = format!("lessons/{0}.txt", lesson);
+    let path = format!("LESSONS/{0}.txt", lesson);
     //println!("{}", path);
     let lesson_string = read_to_string(path).unwrap();
     Lesson::new(lesson_string)
 }
+*/
 
 pub fn run_lesson(lesson: &Lesson) -> bool {
     let raw_stdout = stdout().into_raw_mode().unwrap();
@@ -174,6 +316,10 @@ pub fn run_lesson(lesson: &Lesson) -> bool {
                 update_cursor_pos(&mut cursor_x, &mut cursor_y, &mut stdout);
                 stdout.flush().unwrap();
             }
+        }
+
+        if cursor_y > terminal_size().unwrap().1 - 1 {
+            write!(stdout, "{}", termion::scroll::Up(1));
         }
     }
 
