@@ -1,5 +1,3 @@
-#![feature(const_fn)]
-
 #[macro_use]
 extern crate clap;
 
@@ -10,12 +8,12 @@ extern crate lazy_static;
 
 use clap::ErrorKind;
 use colored::Colorize;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::borrow::{Borrow, BorrowMut};
 use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
 use std::cmp::Ordering::{Equal, Greater, Less};
-use std::error::Error;
 use std::fs::{read_to_string, File};
 use std::io::{stdin, stdout, Read, Stdin, StdinLock, Stdout, StdoutLock, Write};
 use std::marker::Copy;
@@ -56,7 +54,7 @@ struct Stats {
 }
 
 lazy_static! {
-    pub static ref LESSONS: Vec<Arc<Lesson>> = load_lessons();
+    pub static ref LESSONS: Mutex<IndexMap<String, Arc<Lesson>>> = load_lessons();
 }
 
 pub fn create_app() {
@@ -67,22 +65,22 @@ pub fn create_app() {
 
     let handle = run(rx);
 
-    let loader = &LESSONS[0];
+    let mut lessons_lock = &mut LESSONS.lock().unwrap();
+
+    let loader = &lessons_lock["01"];
 
     if matches.is_present("lesson") {
         let lesson_str = matches.value_of("lesson").unwrap();
-        let lesson = LESSONS
-            .iter()
-            .find(|&l| l.id == lesson_str)
-            .unwrap()
-            .clone();
+        let lesson = lessons_lock[lesson_str].clone();
         tx.send(lesson).expect("Lesson message sending failed!");
     }
 
     if matches.is_present("continue") {
         let stats = load_stats();
 
-        println!("Last Lesson ID: {}", stats.last_lesson_id);
+        let index = lessons_lock.entry(stats.last_lesson_id).index() + 1;
+        let lesson = lessons_lock.get_index(index).unwrap().1.clone();
+        tx.send(lesson).expect("Lesson message sending failed!");
     }
 
     get_next_lesson();
@@ -113,7 +111,10 @@ fn load_stats() -> Stats {
 }
 
 fn save_stats(lesson: Lesson) {
-    let json = serde_json::to_string(&lesson).unwrap();
+    let stats = Stats {
+        last_lesson_id: lesson.id,
+    };
+    let json = serde_json::to_string(&stats).unwrap();
 
     let path = Path::new("stats.json");
     let display = path.display();
@@ -129,18 +130,40 @@ fn save_stats(lesson: Lesson) {
     }
 }
 
-fn load_lessons() -> Vec<Arc<Lesson>> {
+fn load_lessons() -> Mutex<IndexMap<String, Arc<Lesson>>> {
     fn is_lesson(entry: &DirEntry) -> bool {
-        entry
-            .file_name()
-            .to_str()
-            .map(|s| s.starts_with("lesson_"))
-            .unwrap_or(false)
+        entry.file_name().to_str().unwrap().starts_with("lesson_")
     }
 
-    let mut lessons = vec![];
+    let mut lessons: Mutex<IndexMap<String, Arc<Lesson>>> = Mutex::new(IndexMap::new());
 
-    let walker = WalkDir::new("lessons").contents_first(true).into_iter();
+    let walker = WalkDir::new("lessons")
+        .sort_by(|a, b| {
+            if !is_lesson(a) {
+                return Less;
+            }
+            if !is_lesson(b) {
+                return Greater;
+            }
+
+            let id_a = a
+                .file_name()
+                .to_str()
+                .unwrap()
+                .trim_start_matches("lesson_")
+                .trim_end_matches(".txt");
+
+            let id_b = b
+                .file_name()
+                .to_str()
+                .unwrap()
+                .trim_start_matches("lesson_")
+                .trim_end_matches(".txt");
+
+            compare_lesson_id(id_a, id_b)
+        })
+        .contents_first(true)
+        .into_iter();
     for entry in walker.filter_entry(|e| is_lesson(e) && e.file_type().is_file()) {
         let entry = entry.unwrap();
         let id = entry
@@ -149,9 +172,14 @@ fn load_lessons() -> Vec<Arc<Lesson>> {
             .unwrap()
             .trim_start_matches("lesson_")
             .trim_end_matches(".txt");
+
         let lesson_string = read_to_string(entry.path()).unwrap();
         let lesson = Lesson::new(lesson_string, id.to_string());
-        lessons.push(Arc::new(lesson));
+
+        lessons
+            .lock()
+            .unwrap()
+            .insert(id.to_string(), Arc::new(lesson));
     }
     lessons
 }
@@ -174,8 +202,6 @@ fn get_next_lesson() {
             .unwrap()
             .trim_start_matches("lesson_")
             .trim_end_matches(".txt");
-
-        println!("next lesson: {}", entry.path().display());
     }
 }
 
@@ -187,8 +213,15 @@ fn compare_lesson_id(id_a: &str, id_b: &str) -> Ordering {
     let letter_a = id_a.trim_matches(char::is_numeric);
     let letter_b = id_a.trim_matches(char::is_numeric);
 
-    let number_a = id_a.parse::<u32>().unwrap();
-    let number_b = id_b.parse::<u32>().unwrap();
+    println!("{}", id_a.trim_matches(char::is_alphabetic));
+    let number_a = id_a
+        .trim_matches(char::is_alphabetic)
+        .parse::<u32>()
+        .unwrap();
+    let number_b = id_b
+        .trim_matches(char::is_alphabetic)
+        .parse::<u32>()
+        .unwrap();
 
     if number_a > number_b {
         return Greater;
