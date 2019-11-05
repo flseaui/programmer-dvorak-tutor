@@ -1,6 +1,6 @@
 [package]
 name = "programmer-dvorak-tutor"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Claire Meyer <signedrewind@gmail.com>"]
 edition = "2018"
 
@@ -16,8 +16,7 @@ path = "src/bin/main.rs"
 
 [dependencies]
 clap = {version = "2.33.0", features = ["yaml"]}
-crossterm = "0.12.1"
-colored = "1.8.0"
+crossterm = "0.13.2"
 walkdir = "2.2.9"
 lazy_static = "1.4.0"
 serde_json = "1.0.41"
