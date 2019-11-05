@@ -4,21 +4,21 @@ extern crate clap;
 mod io;
 
 use crossterm::style::Colorize;
+use crossterm::terminal::size;
 use crossterm::{
     cursor::{position, Hide, MoveDown, MoveLeft, MoveRight, MoveTo},
     execute,
     input::{input, AsyncReader, InputEvent, KeyEvent},
     screen::{AlternateScreen, RawScreen},
     style::{style, Color, PrintStyledContent},
+    terminal::{Clear, ClearType, ScrollDown, ScrollUp},
     utils::Output,
 };
 use indexmap::map::IndexMap;
 use lazy_static::lazy_static;
 use serde::Deserialize;
 use serde::Serialize;
-use std::cmp::Ordering;
 use std::cmp::Ordering::{Equal, Greater, Less};
-use std::fs::read_to_string;
 use std::io::{stdout, Stdout, Write};
 use walkdir::{DirEntry, WalkDir};
 
@@ -44,6 +44,7 @@ pub struct Stats {
 pub enum Event {
     InputCharacter(char),
     NewLine,
+    BackSpace,
     Quit,
 }
 
@@ -84,12 +85,23 @@ fn run_lesson(lesson: &Lesson) {
     execute!(&mut stdout, Output(title), MoveTo(0, 1));
 
     'outer: for line in lines {
+        // if at bottom of terminal, scroll up
+        let scroll = position().unwrap().1 >= size().unwrap().1 - 1;
+
+        if scroll {
+            execute!(&mut stdout, ScrollUp(1));
+        }
+
         execute!(
             &mut stdout,
             Output(line.to_string()),
             MoveDown(1),
             MoveTo(0, position().unwrap().1)
         );
+
+        if scroll {
+            execute!(&mut stdout, ScrollUp(1));
+        }
 
         let chars: Vec<char> = line.chars().collect();
 
@@ -113,6 +125,12 @@ fn run_lesson(lesson: &Lesson) {
                             break 'char;
                         }
                     }
+                    Some(Event::BackSpace) => {
+                        if position().unwrap().0 > 0 {
+                            execute!(&mut stdout, MoveLeft(1), Clear(ClearType::UntilNewLine));
+                            char_index -= 1;
+                        }
+                    }
                     Some(Event::Quit) => break 'outer,
                     _ => {}
                 }
@@ -130,11 +148,9 @@ fn next_event(reader: &mut AsyncReader) -> Option<Event> {
             }
             InputEvent::Keyboard(KeyEvent::Esc) => return Some(Event::Quit),
             InputEvent::Keyboard(KeyEvent::Ctrl('c')) => return Some(Event::Quit),
-            InputEvent::Keyboard(key) => {
-                if key == KeyEvent::Enter {
-                    return Some(Event::NewLine);
-                }
-            }
+
+            InputEvent::Keyboard(KeyEvent::Backspace) => return Some(Event::BackSpace),
+            InputEvent::Keyboard(KeyEvent::Enter) => return Some(Event::NewLine),
             _ => {}
         };
     }
