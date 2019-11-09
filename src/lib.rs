@@ -60,7 +60,21 @@ pub fn create_app() {
         let lesson_str = matches.value_of("lesson").unwrap();
         println!("{}", LESSONS[lesson_str].id);
 
-        run_lesson(&LESSONS[lesson_str])
+        let mut next_lesson = lesson_str;
+
+        let test: IndexMap<String, Lesson> = IndexMap::new();
+        test.get_index(1);
+
+        loop {
+            if run_lesson(&LESSONS[next_lesson]) {
+                let index = LESSONS.get_full(next_lesson).unwrap().0;
+                next_lesson = LESSONS.get_index(index + 1).unwrap().0;
+                continue;
+            } else {
+                println!("NOOOO");
+                break;
+            }
+        }
     }
 
     if matches.is_present("continue") {
@@ -68,7 +82,7 @@ pub fn create_app() {
     }
 }
 
-fn run_lesson(lesson: &Lesson) {
+fn run_lesson(lesson: &Lesson) -> bool {
     let alt = AlternateScreen::to_alternate(true);
 
     #[allow(unused)]
@@ -82,7 +96,7 @@ fn run_lesson(lesson: &Lesson) {
     let mut lines = lesson.text.lines();
     let title = lines.next().unwrap().to_string();
 
-    execute!(&mut stdout, Output(title), MoveTo(0, 1));
+    execute!(&mut stdout, MoveTo(0, 0), Output(title), MoveTo(0, 1));
 
     'outer: for line in lines {
         // if at bottom of terminal, scroll up
@@ -95,8 +109,7 @@ fn run_lesson(lesson: &Lesson) {
         execute!(
             &mut stdout,
             Output(line.to_string()),
-            MoveDown(1),
-            MoveTo(0, position().unwrap().1)
+            MoveTo(0, position().unwrap().1 + 1)
         );
 
         if scroll {
@@ -138,6 +151,55 @@ fn run_lesson(lesson: &Lesson) {
             char_index += 1;
         }
     }
+
+    // Lesson finished
+
+    // If at bottom scroll up
+    if position().unwrap().1 >= size().unwrap().1 - 1 {
+        execute!(&mut stdout, ScrollUp(1));
+    }
+
+    execute!(
+        &mut stdout,
+        MoveTo(0, position().unwrap().1 + 1),
+        Output("Lesson finished, next lesson? (y/n) ")
+    );
+
+    let start_x = position().unwrap().0;
+
+    let mut answer = false;
+
+    loop {
+        match next_event(&mut stdin) {
+            Some(Event::InputCharacter(mut character)) => {
+                character.make_ascii_lowercase();
+                if let 'y' | 'n' = character {
+                    if position().unwrap().0 > start_x {
+                        execute!(&mut stdout, MoveLeft(1), Clear(ClearType::UntilNewLine));
+                    }
+                    execute!(&mut stdout, Output(character));
+
+                    if character == 'y' {
+                        answer = true;
+                    } else if character == 'n' {
+                        answer = false;
+                    }
+                }
+            }
+
+            Some(Event::NewLine) => {
+                return answer;
+            }
+
+            Some(Event::Quit) => {
+                break;
+            }
+
+            _ => {}
+        }
+    }
+
+    return false;
 }
 
 fn next_event(reader: &mut AsyncReader) -> Option<Event> {

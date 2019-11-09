@@ -1,9 +1,9 @@
-use indexmap::map::IndexMap;
-use walkdir::{DirEntry, WalkDir};
 use crate::Lesson;
-use std::cmp::Ordering::{Less, Greater, Equal};
-use std::fs::read_to_string;
+use indexmap::map::IndexMap;
 use std::cmp::Ordering;
+use std::cmp::Ordering::{Equal, Greater, Less};
+use std::fs::read_to_string;
+use walkdir::{DirEntry, WalkDir};
 
 pub fn load_lessons() -> IndexMap<String, Lesson> {
     fn is_lesson(entry: &DirEntry) -> bool {
@@ -52,8 +52,7 @@ pub fn load_lessons() -> IndexMap<String, Lesson> {
         let lesson_string = read_to_string(entry.path()).unwrap();
         let lesson = Lesson::new(lesson_string, id.to_string());
 
-        lessons
-            .insert(id.to_string(), lesson);
+        lessons.insert(id.to_string(), lesson);
     }
     lessons
 }
