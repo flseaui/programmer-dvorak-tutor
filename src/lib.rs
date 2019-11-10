@@ -56,9 +56,14 @@ pub fn create_app() {
     let yaml = load_yaml!("../cli.yml");
     let matches = clap::App::from(yaml).get_matches();
 
+    if matches.is_present("list") {
+        for lesson in LESSONS.values() {
+            println!("{}", lesson.text.lines().next().unwrap())
+        }
+    }
+
     if matches.is_present("lesson") {
         let lesson_str = matches.value_of("lesson").unwrap();
-        println!("{}", LESSONS[lesson_str].id);
 
         let mut next_lesson = lesson_str;
 
@@ -71,7 +76,6 @@ pub fn create_app() {
                 next_lesson = LESSONS.get_index(index + 1).unwrap().0;
                 continue;
             } else {
-                println!("NOOOO");
                 break;
             }
         }

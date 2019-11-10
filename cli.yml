@@ -1,5 +1,5 @@
 name: Programmer Dvorak Tutor
-version: "0.1"
+version: "0.25"
 author: Claire Meyer <signedrewind@gmail.com>
 about: Interactive CLI tool to learn Programmer Dvorak.
 args:
@@ -13,3 +13,7 @@ args:
           short: c
           long: continue
           help: continues from where you last left off
+    - list:
+        short: L
+        long: list
+        help: lists all lessons
